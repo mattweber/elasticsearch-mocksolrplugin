@@ -1,0 +1,101 @@
+h1. ElasticSearch Mock Solr Plugin
+
+h2. Use Solr clients/tools with ElasticSearch
+
+This plugin will allow you to use tools that were built to
+interact with Solr with ElasticSearch. 
+
+The idea for this plugin came when I wanted to use Nutch with 
+ElasticSearch.  Instead of extending Nutch itself, 
+I thought it would be nice to use any Solr clients with
+ElasticSearch.  Some projects we can now use is
+Nutch, Apache ManifoldCF, and any tool that uses SolrJ.
+
+h3. Supported Solr features
+
+* Update handlers
+** XML Update Handler (ie. /update)
+** JavaBin Update Handler (ie. /update/javabin)
+
+h3. How do you build this plugin?
+
+Start by specifying the ElasticSearch and solr versions in 
+the pom.xml.  Make sure the solr version matches the version
+of lucene used in ElasticSearch.
+
+<pre>
+...
+<elasticsearch.version>0.18.5</elasticsearch.version>
+<solr.version>3.5.0</solr.version>
+...
+</pre>
+
+Use maven to build the package
+
+<pre>
+mvn package
+</pre>
+
+Then install the plugin
+
+<pre>
+# if you've built it locally
+$ES_HOME/bin/plugin -url file:./target/release/elasticsearch-MockSolrPlugin-0.18.5.zip -install mocksolrplugin
+
+# if you just want to install the pre-built package from github
+$ES_HOME/bin/plugin install mattweber/mocksolrplugin
+</pre>
+
+h3. How to use this plugin.
+
+Just point your Solr client/tool to your ElasticSearch instance and appending
+/_solr to the url.
+
+http://localhost:9200/${index}/${type}/_solr
+
+${index} - the ES index you want to index/search against.  Default "solr".
+${type} - the ES type you want to index/search against.  Default "docs".
+
+Example paths:
+<pre>
+# will search/index against index "solr" and type "docs"
+http://localhost:9200/_solr
+
+# will search/index against index "testindex" and type "docs"
+http://localhost:9200/testindex/_solr
+
+# will search/index against index "testindex" and type "testtype"
+http://localhost:9200/testindex/testtype/_solr
+</pre>
+
+Use the client/tool as you would with Solr.
+
+Example SolrJ:
+<pre>
+    CommonsHttpSolrServer server = new CommonsHttpSolrServer("http://localhost:9200/testindex/testtype/_solr");
+    server.setRequestWriter(new BinaryRequestWriter());
+    // we support both xml and SolrBin response writers
+    //server.setParser(new XMLResponseParser());
+    
+    SolrInputDocument doc1 = new SolrInputDocument();
+    doc1.addField( "id", "id1", 1.0f );
+    doc1.addField( "name", "doc1", 1.0f );
+    doc1.addField( "price", 10 );
+
+    SolrInputDocument doc2 = new SolrInputDocument();
+    doc2.addField( "id", "id2", 1.0f );
+    doc2.addField( "name", "doc2", 1.0f );
+    doc2.addField( "price", 20 );
+    
+    Collection<SolrInputDocument> docs = new ArrayList<SolrInputDocument>();
+    docs.add( doc1 );
+    docs.add( doc2 );
+    
+    server.add( docs );
+    server.commit();
+
+    server.deleteById("id2");
+    server.commit();
+</pre>
+
+Perform a search and verify the documents were indexed.
