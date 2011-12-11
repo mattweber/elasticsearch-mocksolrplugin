@@ -99,3 +99,11 @@ Example SolrJ:
 </pre>
 
 Perform a search and verify the documents were indexed.
+
+h3. Notes
+
+ElasticSearch does not require a schema and all the data you send to Solr will be indexed by default.  You
+Can use the ElasticSearch PUT Mapping API to define your field types, what should be stored, analyzed, etc.
+All data that is indexed via the mock XML Update Handler will most likely be detected by ElasticSearch as
+strings, thus it is a good idea to mimic your Solr schema with an ElasticSearch type mapping.
+
