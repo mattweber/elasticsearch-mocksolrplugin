@@ -3,6 +3,7 @@ package co.diji.rest;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.StringReader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
@@ -10,6 +11,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 
 import org.apache.commons.codec.binary.Hex;
 import org.apache.solr.client.solrj.request.JavaBinUpdateRequestCodec;
@@ -51,6 +57,9 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	// fields in the Solr input document to scan for a document id
 	private final String[] idFields = { "id", "docid", "documentid", "contentid", "uuid", "url" };
 
+	// the xml input factory
+	private XMLInputFactory inputFactory;
+
 	/**
 	 * Rest actions that mock Solr update handlers
 	 * 
@@ -70,6 +79,9 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		restController.registerHandler(RestRequest.Method.POST, "/{index}/_solr/update/{handler}", this);
 		restController.registerHandler(RestRequest.Method.POST, "/{index}/{type}/_solr/update", this);
 		restController.registerHandler(RestRequest.Method.POST, "/{index}/{type}/_solr/update/{handler}", this);
+
+		// get and instance of the xml input factory
+		inputFactory = XMLInputFactory.newInstance();
 	}
 
 	/*
@@ -115,9 +127,52 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		// parse and handle the content
 		if (handler.equals("xml")) {
 			// XML Content
-			// TODO: support this
-			logger.warn("xml input not supported yet");
-			sendResponse(request, channel);
+			try {
+				// create parser for the content
+				XMLStreamReader parser = inputFactory.createXMLStreamReader(new StringReader(request.contentAsString()));
+
+				// parse the xml
+				// we only care about doc and delete tags for now
+				boolean stop = false;
+				while (!stop) {
+					// get the xml "event"
+					int event = parser.next();
+					switch (event) {
+					case XMLStreamConstants.END_DOCUMENT:
+						// this is the end of the document
+						// close parser and exit while loop
+						parser.close();
+						stop = true;
+						break;
+					case XMLStreamConstants.START_ELEMENT:
+						// start of an xml tag
+						// determine if we need to add or delete a document
+						String currTag = parser.getLocalName();
+						if ("doc".equals(currTag)) {
+							// add a document
+							Map<String, Object> doc = parseXmlDoc(parser);
+							if (doc != null) {
+								bulkRequest.add(getIndexRequest(doc, request));
+							}
+						} else if ("delete".equals(currTag)) {
+							// delete a document
+							String docid = parseXmlDelete(parser);
+							if (docid != null) {
+								bulkRequest.add(getDeleteRequest(docid, request));
+							}
+						}
+						break;
+					}
+				}
+			} catch (Exception e) {
+				// some sort of error processing the xml input
+				try {
+					logger.error("Error processing xml input", e);
+					channel.sendResponse(new XContentThrowableRestResponse(request, e));
+				} catch (IOException e1) {
+					logger.error("Failed to send error response", e1);
+				}
+			}
 		} else if (handler.equals("javabin")) {
 			// JavaBin Content
 			try {
@@ -128,10 +183,11 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 
 				// Get the list of documents to index out of the UpdateRequest
 				// Add each document to the bulk request
+				// convert the SolrInputDocument into a map which will be used as the ES source field
 				List<SolrInputDocument> docs = req.getDocuments();
 				if (docs != null) {
 					for (SolrInputDocument doc : docs) {
-						bulkRequest.add(getIndexRequest(doc, request));
+						bulkRequest.add(getIndexRequest(convertToMap(doc), request));
 					}
 				}
 
@@ -142,29 +198,6 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 						bulkRequest.add(getDeleteRequest(id, request));
 					}
 				}
-
-				// Execute the bulk request
-				client.bulk(bulkRequest, new ActionListener<BulkResponse>() {
-
-					// successful bulk request
-					public void onResponse(BulkResponse response) {
-						logger.info("Bulk request completed");
-						for (BulkItemResponse itemResponse : response) {
-							if (itemResponse.failed()) {
-								logger.error("Index request failed {index:{}, type:{}, id:{}, reason:{}}", itemResponse.index(), itemResponse.type(), itemResponse.id(), itemResponse.failure().message());
-							}
-						}
-					}
-
-					// failed bulk request
-					public void onFailure(Throwable e) {
-						logger.error("Bulk request failed {reason:{}}", e);
-					}
-				});
-
-				// send dummy response to Solr so the clients don't choke
-				sendResponse(request, channel);
-
 			} catch (Exception e) {
 				// some sort of error processing the javabin input
 				try {
@@ -175,6 +208,28 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 				}
 			}
 		}
+
+		// Execute the bulk request
+		client.bulk(bulkRequest, new ActionListener<BulkResponse>() {
+
+			// successful bulk request
+			public void onResponse(BulkResponse response) {
+				logger.info("Bulk request completed");
+				for (BulkItemResponse itemResponse : response) {
+					if (itemResponse.failed()) {
+						logger.error("Index request failed {index:{}, type:{}, id:{}, reason:{}}", itemResponse.index(), itemResponse.type(), itemResponse.id(), itemResponse.failure().message());
+					}
+				}
+			}
+
+			// failed bulk request
+			public void onFailure(Throwable e) {
+				logger.error("Bulk request failed {reason:{}}", e);
+			}
+		});
+
+		// send dummy response to Solr so the clients don't choke
+		sendResponse(request, channel);
 	}
 
 	/**
@@ -250,13 +305,10 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	 * @param request the ES rest request
 	 * @return the ES index request object
 	 */
-	private IndexRequest getIndexRequest(SolrInputDocument solrDoc, RestRequest request) {
+	private IndexRequest getIndexRequest(Map<String, Object> doc, RestRequest request) {
 		// get the index and type we want to index the document in
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
 		final String type = request.hasParam("type") ? request.param("type") : "docs";
-
-		// convert the SolrInputDocument into a map which will be used as the ES source field
-		Map<String, Object> doc = convertToMap(solrDoc);
 
 		// generate an id for the document
 		String id = getIdForDoc(doc);
@@ -368,5 +420,114 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		}
 
 		return newDoc;
+	}
+
+	/**
+	 * Reads a SolrXML document into a map of fields
+	 * 
+	 * @param parser the xml parser
+	 * @return the document as a map
+	 * @throws XMLStreamException
+	 */
+	private Map<String, Object> parseXmlDoc(XMLStreamReader parser) throws XMLStreamException {
+		Map<String, Object> doc = new HashMap<String, Object>();
+		StringBuilder buf = new StringBuilder();
+		String name = null;
+		boolean stop = false;
+		// infinite loop until we are done parsing the document or an error occurs
+		while (!stop) {
+			int event = parser.next();
+			switch (event) {
+			case XMLStreamConstants.START_ELEMENT:
+				buf.setLength(0);
+				String localName = parser.getLocalName();
+				// we are looking for field elements only
+				if (!"field".equals(localName)) {
+					logger.warn("unexpected xml tag /doc/" + localName);
+					doc = null;
+					stop = true;
+				}
+
+				// get the name attribute of the field
+				String attrName = "";
+				String attrVal = "";
+				for (int i = 0; i < parser.getAttributeCount(); i++) {
+					attrName = parser.getAttributeLocalName(i);
+					attrVal = parser.getAttributeValue(i);
+					if ("name".equals(attrName)) {
+						name = attrVal;
+					}
+				}
+				break;
+			case XMLStreamConstants.END_ELEMENT:
+				if ("doc".equals(parser.getLocalName())) {
+					// we are done parsing the doc
+					// break out of loop
+					stop = true;
+				} else if ("field".equals(parser.getLocalName())) {
+					// put the field value into the mao
+					doc.put(name, buf.toString());
+				}
+				break;
+			case XMLStreamConstants.SPACE:
+			case XMLStreamConstants.CDATA:
+			case XMLStreamConstants.CHARACTERS:
+				// save all text data
+				buf.append(parser.getText());
+				break;
+			}
+		}
+
+		// return the parsed doc
+		return doc;
+	}
+
+	/**
+	 * Parse the document id out of the SolrXML delete command
+	 * 
+	 * @param parser the xml parser
+	 * @return the document id to delete
+	 * @throws XMLStreamException
+	 */
+	private String parseXmlDelete(XMLStreamReader parser) throws XMLStreamException {
+		String docid = null;
+		StringBuilder buf = new StringBuilder();
+		boolean stop = false;
+		// infinite loop until we get docid or error
+		while (!stop) {
+			int event = parser.next();
+			switch (event) {
+			case XMLStreamConstants.START_ELEMENT:
+				// we just want the id node
+				String mode = parser.getLocalName();
+				if (!"id".equals(mode)) {
+					logger.warn("unexpected xml tag /delete/" + mode);
+					stop = true;
+				}
+				buf.setLength(0);
+				break;
+			case XMLStreamConstants.END_ELEMENT:
+				String currTag = parser.getLocalName();
+				if ("id".equals(currTag)) {
+					// we found the id
+					docid = buf.toString();
+				} else if ("delete".equals(currTag)) {
+					// done parsing, exit loop
+					stop = true;
+				} else {
+					logger.warn("unexpected xml tag /delete/" + currTag);
+				}
+				break;
+			case XMLStreamConstants.SPACE:
+			case XMLStreamConstants.CDATA:
+			case XMLStreamConstants.CHARACTERS:
+				// save all text data (this is the id)
+				buf.append(parser.getText());
+				break;
+			}
+		}
+
+		// return the extracted docid
+		return docid;
 	}
 }
