@@ -4,6 +4,7 @@ import org.elasticsearch.common.inject.Module;
 import org.elasticsearch.plugins.AbstractPlugin;
 import org.elasticsearch.rest.RestModule;
 
+import co.diji.rest.SolrSearchHandlerRestAction;
 import co.diji.rest.SolrUpdateHandlerRestAction;
 
 public class MockSolrPlugin extends AbstractPlugin {
@@ -35,6 +36,7 @@ public class MockSolrPlugin extends AbstractPlugin {
 	public void processModule(Module module) {
 		if (module instanceof RestModule) {
 			((RestModule) module).addRestAction(SolrUpdateHandlerRestAction.class);
+			((RestModule) module).addRestAction(SolrSearchHandlerRestAction.class);
 		}
 	}
 

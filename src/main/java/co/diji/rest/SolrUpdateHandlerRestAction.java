@@ -1,7 +1,6 @@
 package co.diji.rest;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.StringReader;
 import java.security.MessageDigest;
@@ -22,7 +21,6 @@ import org.apache.solr.client.solrj.request.JavaBinUpdateRequestCodec;
 import org.apache.solr.client.solrj.request.UpdateRequest;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
-import org.apache.solr.common.util.JavaBinCodec;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.SimpleOrderedMap;
 import org.elasticsearch.action.ActionListener;
@@ -38,27 +36,26 @@ import org.elasticsearch.client.Requests;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.BytesRestResponse;
 import org.elasticsearch.rest.RestChannel;
 import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.rest.XContentThrowableRestResponse;
 
+import co.diji.solr.SolrResponseWriter;
+
 public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 
-	// dummy xml response to send so Solr clients don't blow up without a response
-	private final String xmlResponse = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><response><lst name=\"responseHeader\"><int name=\"status\">0</int><int name=\"QTime\">5</int></lst></response>";
-
-	// output content types
-	private final String contentTypeXml = "application/xml; charset=UTF-8";
+	// content types
 	private final String contentTypeFormEncoded = "application/x-www-form-urlencoded; charset=UTF-8";
-	private final String contentTypeOctet = "application/octet-stream";
 
 	// fields in the Solr input document to scan for a document id
 	private final String[] idFields = { "id", "docid", "documentid", "contentid", "uuid", "url" };
 
 	// the xml input factory
-	private XMLInputFactory inputFactory;
+	private final XMLInputFactory inputFactory = XMLInputFactory.newInstance();
+
+	// the response writer
+	private final SolrResponseWriter solrResponseWriter = new SolrResponseWriter();
 
 	/**
 	 * Rest actions that mock Solr update handlers
@@ -79,9 +76,6 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		restController.registerHandler(RestRequest.Method.POST, "/{index}/_solr/update/{handler}", this);
 		restController.registerHandler(RestRequest.Method.POST, "/{index}/{type}/_solr/update", this);
 		restController.registerHandler(RestRequest.Method.POST, "/{index}/{type}/_solr/update/{handler}", this);
-
-		// get and instance of the xml input factory
-		inputFactory = XMLInputFactory.newInstance();
 	}
 
 	/*
@@ -233,43 +227,21 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	}
 
 	/**
-	 * Sends a dummy response to the Solr client based on the specified Solr
-	 * output writer.
+	 * Sends a dummy response to the Solr client 
 	 * 
 	 * @param request ES rest request
 	 * @param channel ES rest channel
 	 */
 	private void sendResponse(RestRequest request, RestChannel channel) {
-		// determine what kind of output writer the Solr client is expecting
-		final String wt = request.hasParam("wt") ? request.param("wt").toLowerCase() : "xml";
+		// create NamedList with dummy Solr response
+		NamedList<Object> solrResponse = new SimpleOrderedMap<Object>();
+		NamedList<Object> responseHeader = new SimpleOrderedMap<Object>();
+		responseHeader.add("status", 0);
+		responseHeader.add("QTime", 5);
+		solrResponse.add("responseHeader", responseHeader);
 
-		// determine what kind of response we need to send
-		if (wt.equals("xml")) {
-			// XML response, just send dummy xml response
-			channel.sendResponse(new BytesRestResponse(xmlResponse.getBytes(), contentTypeXml));
-		} else if (wt.equals("javabin")) {
-			// JavaBin response
-			// create NamedList with dummy Solr response
-			// use the JavaBin codec to marshal the dummy data
-			NamedList<Object> solrResponse = new SimpleOrderedMap<Object>();
-			NamedList<Object> responseHeader = new SimpleOrderedMap<Object>();
-			responseHeader.add("status", 0);
-			responseHeader.add("QTime", 5);
-			solrResponse.add("responseHeader", responseHeader);
-			ByteArrayOutputStream bo = new ByteArrayOutputStream();
-
-			// try to marshal the dummy data
-			try {
-				new JavaBinCodec().marshal(solrResponse, bo);
-			} catch (IOException e) {
-				logger.error("Error marshaling solrResponse");
-			}
-
-			// send the response
-			channel.sendResponse(new BytesRestResponse(bo.toByteArray(), contentTypeOctet));
-		} else {
-			logger.warn("Unknown output writer: " + wt);
-		}
+		// send the dummy response
+		solrResponseWriter.writeResponse(solrResponse, request, channel);
 	}
 
 	/**
