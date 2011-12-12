@@ -64,13 +64,13 @@ ${type} - the ES type you want to index/search against.  Default "docs".
 
 Example paths:
 <pre>
-# will search/index against index "solr" and type "docs"
+// Will search/index against index "solr" and type "docs"
 http://localhost:9200/_solr
 
-# will search/index against index "testindex" and type "docs"
+// Will search/index against index "testindex" and type "docs"
 http://localhost:9200/testindex/_solr
 
-# will search/index against index "testindex" and type "testtype"
+// Will search/index against index "testindex" and type "testtype"
 http://localhost:9200/testindex/testtype/_solr
 </pre>
 
