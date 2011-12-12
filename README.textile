@@ -8,14 +8,20 @@ interact with Solr with ElasticSearch.
 The idea for this plugin came when I wanted to use Nutch with 
 ElasticSearch.  Instead of extending Nutch itself, 
 I thought it would be nice to use any Solr clients with
-ElasticSearch.  Some projects we can now use is
-Nutch, Apache ManifoldCF, and any tool that uses SolrJ.
+ElasticSearch.  Some projects we can now use are
+Nutch, Apache ManifoldCF, and any tool using SolrJ. It
+should be possible to use non-java tools that write to
+Solr using the XML update and request handlers as well.
 
 h3. Supported Solr features
 
 * Update handlers
 ** XML Update Handler (ie. /update)
 ** JavaBin Update Handler (ie. /update/javabin)
+* Search handler (ie. /select)
+** Basic lucene queries using the q paramter
+** start, rows, and fl parameters
+* XML and JavaBin request and response formats
 
 h3. How do you build this plugin?
 
@@ -70,7 +76,8 @@ http://localhost:9200/testindex/testtype/_solr
 
 Use the client/tool as you would with Solr.
 
-Example SolrJ:
+h3. Example SolrJ Indexing
+
 <pre>
     CommonsHttpSolrServer server = new CommonsHttpSolrServer("http://localhost:9200/testindex/testtype/_solr");
     server.setRequestWriter(new BinaryRequestWriter());
@@ -94,11 +101,72 @@ Example SolrJ:
     server.add( docs );
     server.commit();
 
-    server.deleteById("id2");
-    server.commit();
+    // deletes work as well
+    //server.deleteById("id2");
+    //server.commit();
 </pre>
 
 Perform a search and verify the documents were indexed.
+
+h3. Example SolrJ Searching
+
+<pre>
+    CommonsHttpSolrServer server = new CommonsHttpSolrServer("http://localhost:9200/testindex/testtype/_solr");
+
+    String qstr = "id:[* TO *]";
+    SolrQuery query = new SolrQuery();
+    query.setQuery(qstr);
+
+    QueryResponse response = server.query(query);
+    for (SolrDocument doc : response.getResults()) {
+        for (String field : doc.getFieldNames()) {
+            System.out.println(field + " = " + doc.getFieldValue(field));
+        }
+        System.out.println();
+    }
+</pre>
+
+
+h3. Example using Nutch
+
+At a minimum, use the following type mapping for ElasticSearch.
+
+<pre>
+curl -XPUT 'http://localhost:9200/testindex'
+curl -XPUT 'http://localhost:9200/testindex/testtype/_mapping' -d '{
+    "testtype" : {
+        "properties" : {
+            "id" : {
+                "type" : "string",
+                "store": "yes"
+            },
+            "digest" : {
+                "type" : "string",
+                "store" : "yes",
+                "index" : "no"
+            },
+            "boost" : {
+                "type" : "float",
+                "store" : "yes",
+                "index" : "no"
+            },
+            "tstamp" : {
+                "type" : "date",
+                "store" : "yes",
+                "index" : "no"
+            }
+        }
+    }
+}'
+</pre>
+
+Follow the nutch tutorial at http://wiki.apache.org/nutch/NutchTutorial
+* Follow steps 1 though 3.1
+* For step 3.1 use:
+
+<pre>
+bin/nutch crawl urls -solr http://localhost:9200/testindex/testtype/_solr -depth 3 -topN 5
+</pre>
 
 h3. Notes
 
