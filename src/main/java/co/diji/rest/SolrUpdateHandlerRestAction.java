@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -203,24 +204,28 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 			}
 		}
 
-		// Execute the bulk request
-		client.bulk(bulkRequest, new ActionListener<BulkResponse>() {
+		// only submit the bulk request if there are index/delete actions
+		// it is possible not to have any actions when parsing xml due to the
+		// commit and optimize messages that will not generate documents
+		if (bulkRequest.numberOfActions() > 0) {
+			client.bulk(bulkRequest, new ActionListener<BulkResponse>() {
 
-			// successful bulk request
-			public void onResponse(BulkResponse response) {
-				logger.info("Bulk request completed");
-				for (BulkItemResponse itemResponse : response) {
-					if (itemResponse.failed()) {
-						logger.error("Index request failed {index:{}, type:{}, id:{}, reason:{}}", itemResponse.index(), itemResponse.type(), itemResponse.id(), itemResponse.failure().message());
+				// successful bulk request
+				public void onResponse(BulkResponse response) {
+					logger.info("Bulk request completed");
+					for (BulkItemResponse itemResponse : response) {
+						if (itemResponse.failed()) {
+							logger.error("Index request failed {index:{}, type:{}, id:{}, reason:{}}", itemResponse.index(), itemResponse.type(), itemResponse.id(), itemResponse.failure().message());
+						}
 					}
 				}
-			}
 
-			// failed bulk request
-			public void onFailure(Throwable e) {
-				logger.error("Bulk request failed {reason:{}}", e);
-			}
-		});
+				// failed bulk request
+				public void onFailure(Throwable e) {
+					logger.error("Bulk request failed", e);
+				}
+			});
+		}
 
 		// send dummy response to Solr so the clients don't choke
 		sendResponse(request, channel);
@@ -437,8 +442,20 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 					// break out of loop
 					stop = true;
 				} else if ("field".equals(parser.getLocalName())) {
-					// put the field value into the mao
-					doc.put(name, buf.toString());
+					// put the field value into the map
+					// handle multiple values by putting them into a list
+					if (doc.containsKey(name) && (doc.get(name) instanceof List)) {
+						List<String> vals = (List<String>) doc.get(name);
+						vals.add(buf.toString());
+						doc.put(name, vals);
+					} else if (doc.containsKey(name)) {
+						List<String> vals = new ArrayList<String>();
+						vals.add((String) doc.get(name));
+						vals.add(buf.toString());
+						doc.put(name, vals);
+					} else {
+						doc.put(name, buf.toString());
+					}
 				}
 				break;
 			case XMLStreamConstants.SPACE:
