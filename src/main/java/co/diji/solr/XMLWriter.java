@@ -28,8 +28,8 @@ import java.util.*;
 
 import org.apache.lucene.document.Fieldable;
 import org.elasticsearch.common.joda.time.DateTime;
+import org.elasticsearch.common.joda.time.format.DateTimeFormat;
 import org.elasticsearch.common.joda.time.format.DateTimeFormatter;
-import org.elasticsearch.common.joda.time.format.ISODateTimeFormat;
 
 /**
  * Writes objects to xml.  This class is taken directly out of the 
@@ -53,7 +53,7 @@ final public class XMLWriter {
 
   private final Writer writer;
 
-  private final DateTimeFormatter dateFormat = ISODateTimeFormat.dateTime();
+  private final DateTimeFormatter dateFormat = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
   
   public XMLWriter(Writer writer) {
     this.writer = writer;

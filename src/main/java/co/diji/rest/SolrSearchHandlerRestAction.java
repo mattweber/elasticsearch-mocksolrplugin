@@ -39,7 +39,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
 	// regex and date format to detect ISO8601 date formats
 	private final Pattern datePattern = Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z");;
-	private final DateTimeFormatter dateFormat = ISODateTimeFormat.dateTime();;
+	private final DateTimeFormatter dateFormat = ISODateTimeFormat.dateOptionalTimeParser();
 
 	/**
 	 * Rest actions that mocks the Solr search handler
@@ -166,7 +166,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		NamedList<Object> responseHeader = new SimpleOrderedMap<Object>();
 		responseHeader.add("status", 0);
 		responseHeader.add("QTime", response.tookInMillis());
-
+		
 		// echo params in header
 		NamedList<Object> params = new SimpleOrderedMap<Object>();
 		if (request.hasParam("q"))
