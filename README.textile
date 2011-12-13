@@ -46,10 +46,10 @@ Then install the plugin
 
 <pre>
 # if you've built it locally
-$ES_HOME/bin/plugin -url file:./target/release/elasticsearch-MockSolrPlugin-0.18.5.zip -install mocksolrplugin
+$ES_HOME/bin/plugin -url file:./target/releases/elasticsearch-mocksolrplugin-1.0.0.zip -install elasticsearch-mocksolrplugin
 
 # if you just want to install the pre-built package from github
-$ES_HOME/bin/plugin install mattweber/elasticsearch-mocksolrplugin
+$ES_HOME/bin/plugin install mattweber/elasticsearch-mocksolrplugin/1.0.0
 </pre>
 
 h3. How to use this plugin.
