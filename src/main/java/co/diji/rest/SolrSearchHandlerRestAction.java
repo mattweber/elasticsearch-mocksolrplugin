@@ -204,6 +204,9 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		for (SearchHit hit : hits.getHits()) {
 			SolrDocument doc = new SolrDocument();
 
+			// always add score to document
+			doc.addField("score", hit.score());
+			
 			// attempt to get the returned fields
 			// if none returned, use the source fields
 			Map<String, SearchHitField> fields = hit.getFields();
