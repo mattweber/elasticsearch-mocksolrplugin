@@ -29,6 +29,7 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortOrder;
 
 import co.diji.solr.SolrResponseWriter;
 
@@ -106,6 +107,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		int start = request.paramAsInt("start", 0);
 		int rows = request.paramAsInt("rows", 10);
 		String fl = request.param("fl");
+		String sort = request.param("sort");
 
 		// get index and type we want to search against
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
@@ -129,6 +131,32 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 			} else {
 				searchSourceBuilder.fields(fl.split("\\s|,"));
 			}
+		}
+
+		// handle sorting
+		if (sort != null) {
+			String[] sorts = Strings.splitStringByCommaToArray(sort);
+			for (int i = 0; i < sorts.length; i++) {
+				String sortStr = sorts[i].trim();
+				int delimiter = sortStr.lastIndexOf(" ");
+				if (delimiter != -1) {
+					String sortField = sortStr.substring(0, delimiter);
+					if ("score".equals(sortField)) {
+						sortField = "_score";
+					}
+					String reverse = sortStr.substring(delimiter + 1);
+					if ("asc".equals(reverse)) {
+						searchSourceBuilder.sort(sortField, SortOrder.ASC);
+					} else if ("desc".equals(reverse)) {
+						searchSourceBuilder.sort(sortField, SortOrder.DESC);
+					}
+				} else {
+					searchSourceBuilder.sort(sortStr);
+				}
+			}
+		} else {
+			// default sort by descending score
+			searchSourceBuilder.sort("_score", SortOrder.DESC);
 		}
 
 		// Build the search Request
@@ -166,13 +194,15 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		NamedList<Object> responseHeader = new SimpleOrderedMap<Object>();
 		responseHeader.add("status", 0);
 		responseHeader.add("QTime", response.tookInMillis());
-		
+
 		// echo params in header
 		NamedList<Object> params = new SimpleOrderedMap<Object>();
 		if (request.hasParam("q"))
 			params.add("q", request.param("q"));
 		if (request.hasParam("fl"))
 			params.add("fl", request.param("fl"));
+		if (request.hasParam("sort"))
+			params.add("sort", request.param("sort"));
 		params.add("start", request.paramAsInt("start", 0));
 		params.add("rows", request.paramAsInt("rows", 10));
 		responseHeader.add("params", params);
@@ -206,7 +236,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
 			// always add score to document
 			doc.addField("score", hit.score());
-			
+
 			// attempt to get the returned fields
 			// if none returned, use the source fields
 			Map<String, SearchHitField> fields = hit.getFields();
