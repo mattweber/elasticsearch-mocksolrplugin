@@ -354,6 +354,10 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 			}
 		}
 
+		// always store the id back into the "id" field
+		// so we can get it back in results
+		doc.put("id", id);
+		
 		// return the id which is the md5 of either the
 		// random uuid or id found in the input document.
 		return getMD5(id);
