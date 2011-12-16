@@ -244,19 +244,13 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
 		// echo params in header
 		NamedList<Object> solrParams = new SimpleOrderedMap<Object>();
-		if (request.hasParam("q"))
-			solrParams.add("q", request.param("q"));
-		if (request.hasParam("fl"))
-			solrParams.add("fl", request.param("fl"));
-		if (request.hasParam("sort"))
-			solrParams.add("sort", request.param("sort"));
+		for (String param : params.keySet()) {
+			List<String> paramValue = params.get(param);
+			if (paramValue != null && !paramValue.isEmpty()) {
+				solrParams.add(param, paramValue.size() > 1 ? paramValue : paramValue.get(0));
+			}
+		}
 
-		List<String> fq = params.get("fq");
-		if (fq != null && !fq.isEmpty())
-			solrParams.add("fq", fq.size() > 1 ? fq : fq.get(0));
-
-		solrParams.add("start", request.paramAsInt("start", 0));
-		solrParams.add("rows", request.paramAsInt("rows", 10));
 		responseHeader.add("params", solrParams);
 
 		return responseHeader;
