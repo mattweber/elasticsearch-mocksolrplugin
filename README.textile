@@ -21,6 +21,9 @@ h3. Supported Solr features
 * Search handler (ie. /select)
 ** Basic lucene queries using the q paramter
 ** start, rows, and fl parameters
+** sorting
+** filter queries (fq parameters)
+** hit highlighting (hl, hl.fl, hl.snippets, hl.fragsize, hl.simple.pre, hl.simple.post)
 * XML and JavaBin request and response formats
 
 h3. How do you build this plugin?
@@ -46,10 +49,10 @@ Then install the plugin
 
 <pre>
 # if you've built it locally
-$ES_HOME/bin/plugin -url file:./target/releases/elasticsearch-mocksolrplugin-1.0.0.zip -install elasticsearch-mocksolrplugin
+$ES_HOME/bin/plugin -url file:./target/releases/elasticsearch-mocksolrplugin-1.1.0.zip -install elasticsearch-mocksolrplugin
 
 # if you just want to install the pre-built package from github
-$ES_HOME/bin/plugin install mattweber/elasticsearch-mocksolrplugin/1.0.0
+$ES_HOME/bin/plugin install mattweber/elasticsearch-mocksolrplugin/1.1.0
 </pre>
 
 h3. How to use this plugin.
