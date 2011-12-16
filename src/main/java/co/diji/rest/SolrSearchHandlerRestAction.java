@@ -36,6 +36,8 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.highlight.HighlightBuilder;
+import org.elasticsearch.search.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
 
 import co.diji.solr.SolrResponseWriter;
@@ -135,6 +137,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		String fl = request.param("fl");
 		String sort = request.param("sort");
 		List<String> fqs = params.get("fq");
+		boolean hl = request.paramAsBoolean("hl", false);
 
 		// get index and type we want to search against
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
@@ -206,6 +209,43 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 			searchSourceBuilder.filter(filterBuilder);
 		}
 
+		// handle highlighting
+		if (hl) {
+			// get supported highlighting parameters if they exist
+			String hlfl = request.param("hl.fl");
+			int hlsnippets = request.paramAsInt("hl.snippets", 1);
+			int hlfragsize = request.paramAsInt("hl.fragsize", 100);
+			String hlsimplepre = request.param("hl.simple.pre");
+			String hlsimplepost = request.param("hl.simple.post");
+
+			HighlightBuilder highlightBuilder = new HighlightBuilder();
+			if (hlfl == null) {
+				// run against default _all field
+				highlightBuilder.field("_all", hlfragsize, hlsnippets);
+			} else {
+				String[] hlfls = hlfl.split("\\s|,");
+				for (String hlField : hlfls) {
+					// skip wildcarded fields
+					if (!hlField.contains("*")) {
+						highlightBuilder.field(hlField, hlfragsize, hlsnippets);
+					}
+				}
+			}
+
+			// pre tags
+			if (hlsimplepre != null) {
+				highlightBuilder.preTags(hlsimplepre);
+			}
+
+			// post tags
+			if (hlsimplepost != null) {
+				highlightBuilder.postTags(hlsimplepost);
+			}
+
+			searchSourceBuilder.highlight(highlightBuilder);
+
+		}
+
 		// Build the search Request
 		String[] indices = RestActions.splitIndices(index);
 		SearchRequest searchRequest = new SearchRequest(indices);
@@ -226,6 +266,13 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		NamedList<Object> resp = new SimpleOrderedMap<Object>();
 		resp.add("responseHeader", createResponseHeader(params, request, response));
 		resp.add("response", convertToSolrDocumentList(request, response));
+
+		// add highlight node if highlighting was requested
+		NamedList<Object> highlighting = createHighlightResponse(request, response);
+		if (highlighting != null) {
+			resp.add("highlighting", highlighting);
+		}
+
 		return resp;
 	}
 
@@ -327,5 +374,39 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		}
 
 		return results;
+	}
+
+	/**
+	 * Creates a NamedList for the for document highlighting response
+	 * 
+	 * @param request the ES RestRequest
+	 * @param response the ES SearchResponse
+	 * @return a NamedList if highlighting was requested, null if not
+	 */
+	private NamedList<Object> createHighlightResponse(RestRequest request, SearchResponse response) {
+		NamedList<Object> highlightResponse = null;
+
+		// if highlighting was requested create the NamedList for the highlights
+		if (request.paramAsBoolean("hl", false)) {
+			highlightResponse = new SimpleOrderedMap<Object>();
+			SearchHits hits = response.getHits();
+			// for each hit, get each highlight field and put the list
+			// of highlight fragments in a NamedList specific to the hit
+			for (SearchHit hit : hits.getHits()) {
+				NamedList<Object> docHighlights = new SimpleOrderedMap<Object>();
+				Map<String, HighlightField> highlightFields = hit.getHighlightFields();
+				for (String fieldName : highlightFields.keySet()) {
+					HighlightField highlightField = highlightFields.get(fieldName);
+					docHighlights.add(fieldName, highlightField.getFragments());
+				}
+
+				// highlighting by placing the doc highlights in the response
+				// based on the document id
+				highlightResponse.add(hit.field("id").getValue().toString(), docHighlights);
+			}
+		}
+
+		// return the highlight response
+		return highlightResponse;
 	}
 }
