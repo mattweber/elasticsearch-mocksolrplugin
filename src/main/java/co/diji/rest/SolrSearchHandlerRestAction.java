@@ -1,6 +1,10 @@
 package co.diji.rest;
 
+import static org.elasticsearch.index.query.FilterBuilders.andFilter;
+import static org.elasticsearch.index.query.FilterBuilders.queryFilter;
+
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -16,7 +20,10 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.joda.time.format.DateTimeFormatter;
 import org.elasticsearch.common.joda.time.format.ISODateTimeFormat;
+import org.elasticsearch.common.netty.handler.codec.http.QueryStringDecoder;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.index.query.AndFilterBuilder;
+import org.elasticsearch.index.query.FilterBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.QueryStringQueryBuilder;
 import org.elasticsearch.rest.BaseRestHandler;
@@ -60,6 +67,22 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		restController.registerHandler(RestRequest.Method.GET, "/{index}/{type}/_solr/select", this);
 	}
 
+	/**
+	 * Parse uri parameters.
+	 * 
+	 * ES request.param does not support multiple parameters with the same name yet.  This
+	 * is needed for parameters such as fq in Solr.  This will not be needed once a fix is
+	 * in ES.  https://github.com/elasticsearch/elasticsearch/issues/1544
+	 * 
+	 * @param uri The uri to parse
+	 * @return a map of parameters, each parameter value is a list of strings.
+	 */
+	private Map<String, List<String>> parseUriParams(String uri) {
+		// use netty query string decoder
+		QueryStringDecoder decoder = new QueryStringDecoder(uri);
+		return decoder.getParameters();
+	}
+
 	/*
 	 * (non-Javadoc)
 	 * 
@@ -67,8 +90,11 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 	 * org.elasticsearch.rest.RestHandler#handleRequest(org.elasticsearch.rest.RestRequest, org.elasticsearch.rest.RestChannel)
 	 */
 	public void handleRequest(final RestRequest request, final RestChannel channel) {
+		// Get the parameters
+		final Map<String, List<String>> params = parseUriParams(request.uri());
+
 		// generate the search request
-		SearchRequest searchRequest = getSearchRequest(request);
+		SearchRequest searchRequest = getSearchRequest(params, request);
 		searchRequest.listenerThreaded(false);
 
 		// execute the search
@@ -77,7 +103,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 			public void onResponse(SearchResponse response) {
 				try {
 					// write response
-					solrResponseWriter.writeResponse(createSearchResponse(request, response), request, channel);
+					solrResponseWriter.writeResponse(createSearchResponse(params, request, response), request, channel);
 				} catch (Exception e) {
 					onFailure(e);
 				}
@@ -101,13 +127,14 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 	 * @param request the ES RestRequest
 	 * @return the generated ES SearchRequest
 	 */
-	private SearchRequest getSearchRequest(RestRequest request) {
+	private SearchRequest getSearchRequest(Map<String, List<String>> params, RestRequest request) {
 		// get solr search parameters
 		String q = request.param("q");
 		int start = request.paramAsInt("start", 0);
 		int rows = request.paramAsInt("rows", 10);
 		String fl = request.param("fl");
 		String sort = request.param("sort");
+		List<String> fqs = params.get("fq");
 
 		// get index and type we want to search against
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
@@ -159,6 +186,26 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 			searchSourceBuilder.sort("_score", SortOrder.DESC);
 		}
 
+		// handler filters
+		if (fqs != null && !fqs.isEmpty()) {
+			FilterBuilder filterBuilder = null;
+
+			// if there is more than one filter specified build
+			// an and filter of query filters, otherwise just
+			// build a single query filter.
+			if (fqs.size() > 1) {
+				AndFilterBuilder fqAnd = andFilter();
+				for (String fq : fqs) {
+					fqAnd.add(queryFilter(QueryBuilders.queryString(fq)));
+				}
+				filterBuilder = fqAnd;
+			} else {
+				filterBuilder = queryFilter(QueryBuilders.queryString(fqs.get(0)));
+			}
+
+			searchSourceBuilder.filter(filterBuilder);
+		}
+
 		// Build the search Request
 		String[] indices = RestActions.splitIndices(index);
 		SearchRequest searchRequest = new SearchRequest(indices);
@@ -175,9 +222,9 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 	 * @param response the ES SearchResponse
 	 * @return a NamedList of the response
 	 */
-	private NamedList<Object> createSearchResponse(RestRequest request, SearchResponse response) {
+	private NamedList<Object> createSearchResponse(Map<String, List<String>> params, RestRequest request, SearchResponse response) {
 		NamedList<Object> resp = new SimpleOrderedMap<Object>();
-		resp.add("responseHeader", createResponseHeader(request, response));
+		resp.add("responseHeader", createResponseHeader(params, request, response));
 		resp.add("response", convertToSolrDocumentList(request, response));
 		return resp;
 	}
@@ -189,23 +236,28 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 	 * @param response the ES SearchResponse
 	 * @return the response header as a NamedList 
 	 */
-	private NamedList<Object> createResponseHeader(RestRequest request, SearchResponse response) {
+	private NamedList<Object> createResponseHeader(Map<String, List<String>> params, RestRequest request, SearchResponse response) {
 		// generate response header
 		NamedList<Object> responseHeader = new SimpleOrderedMap<Object>();
 		responseHeader.add("status", 0);
 		responseHeader.add("QTime", response.tookInMillis());
 
 		// echo params in header
-		NamedList<Object> params = new SimpleOrderedMap<Object>();
+		NamedList<Object> solrParams = new SimpleOrderedMap<Object>();
 		if (request.hasParam("q"))
-			params.add("q", request.param("q"));
+			solrParams.add("q", request.param("q"));
 		if (request.hasParam("fl"))
-			params.add("fl", request.param("fl"));
+			solrParams.add("fl", request.param("fl"));
 		if (request.hasParam("sort"))
-			params.add("sort", request.param("sort"));
-		params.add("start", request.paramAsInt("start", 0));
-		params.add("rows", request.paramAsInt("rows", 10));
-		responseHeader.add("params", params);
+			solrParams.add("sort", request.param("sort"));
+
+		List<String> fq = params.get("fq");
+		if (fq != null && !fq.isEmpty())
+			solrParams.add("fq", fq.size() > 1 ? fq : fq.get(0));
+
+		solrParams.add("start", request.paramAsInt("start", 0));
+		solrParams.add("rows", request.paramAsInt("rows", 10));
+		responseHeader.add("params", solrParams);
 
 		return responseHeader;
 	}
