@@ -4,6 +4,7 @@ import static org.elasticsearch.index.query.FilterBuilders.andFilter;
 import static org.elasticsearch.index.query.FilterBuilders.queryFilter;
 
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -36,6 +37,11 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.facet.Facet;
+import org.elasticsearch.search.facet.query.QueryFacet;
+import org.elasticsearch.search.facet.query.QueryFacetBuilder;
+import org.elasticsearch.search.facet.terms.TermsFacet;
+import org.elasticsearch.search.facet.terms.TermsFacetBuilder;
 import org.elasticsearch.search.highlight.HighlightBuilder;
 import org.elasticsearch.search.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
@@ -138,6 +144,7 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		String sort = request.param("sort");
 		List<String> fqs = params.get("fq");
 		boolean hl = request.paramAsBoolean("hl", false);
+		boolean facet = request.paramAsBoolean("facet", false);
 
 		// get index and type we want to search against
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
@@ -246,6 +253,40 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
 		}
 
+		// handle faceting
+		if (facet) {
+			// get supported facet parameters if they exist
+			List<String> facetFields = params.get("facet.field");
+			String facetSort = request.param("facet.sort");
+			int facetLimit = request.paramAsInt("facet.limit", 100);
+
+			List<String> facetQueries = params.get("facet.query");
+
+			if (facetFields != null && !facetFields.isEmpty()) {
+				for (String facetField : facetFields) {
+					TermsFacetBuilder termsFacetBuilder = new TermsFacetBuilder(facetField);
+					termsFacetBuilder.size(facetLimit);
+					termsFacetBuilder.field(facetField);
+
+					if (facetSort != null && facetSort.equals("index")) {
+						termsFacetBuilder.order(TermsFacet.ComparatorType.TERM);
+					} else {
+						termsFacetBuilder.order(TermsFacet.ComparatorType.COUNT);
+					}
+
+					searchSourceBuilder.facet(termsFacetBuilder);
+				}
+			}
+
+			if (facetQueries != null && !facetQueries.isEmpty()) {
+				for (String facetQuery : facetQueries) {
+					QueryFacetBuilder queryFacetBuilder = new QueryFacetBuilder(facetQuery);
+					queryFacetBuilder.query(QueryBuilders.queryString(facetQuery));
+					searchSourceBuilder.facet(queryFacetBuilder);
+				}
+			}
+		}
+
 		// Build the search Request
 		String[] indices = RestActions.splitIndices(index);
 		SearchRequest searchRequest = new SearchRequest(indices);
@@ -271,6 +312,12 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		NamedList<Object> highlighting = createHighlightResponse(request, response);
 		if (highlighting != null) {
 			resp.add("highlighting", highlighting);
+		}
+
+		// add faceting node if faceting was requested
+		NamedList<Object> faceting = createFacetResponse(request, response);
+		if (faceting != null) {
+			resp.add("facet_counts", faceting);
 		}
 
 		return resp;
@@ -408,5 +455,46 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
 		// return the highlight response
 		return highlightResponse;
+	}
+
+	private NamedList<Object> createFacetResponse(RestRequest request, SearchResponse response) {
+		NamedList<Object> facetResponse = null;
+
+		if (request.paramAsBoolean("facet", false)) {
+			facetResponse = new SimpleOrderedMap<Object>();
+
+			// create NamedLists for field and query facets
+			NamedList<Object> termFacets = new SimpleOrderedMap<Object>();
+			NamedList<Object> queryFacets = new SimpleOrderedMap<Object>();
+
+			// loop though all the facets populating the NamedLists we just created
+			Iterator<Facet> facetIter = response.facets().iterator();
+			while (facetIter.hasNext()) {
+				Facet facet = facetIter.next();
+				if (facet.type().equals(TermsFacet.TYPE)) {
+					// we have term facet, create NamedList to store terms
+					TermsFacet termFacet = (TermsFacet) facet;
+					NamedList<Object> termFacetObj = new SimpleOrderedMap<Object>();
+					for (TermsFacet.Entry tfEntry : termFacet.entries()) {
+						termFacetObj.add(tfEntry.term(), tfEntry.count());
+					}
+
+					termFacets.add(facet.getName(), termFacetObj);
+				} else if (facet.type().equals(QueryFacet.TYPE)) {
+					QueryFacet queryFacet = (QueryFacet) facet;
+					queryFacets.add(queryFacet.getName(), queryFacet.count());
+				}
+			}
+
+			facetResponse.add("facet_fields", termFacets);
+			facetResponse.add("facet_queries", queryFacets);
+
+			// add dummy facet_dates and facet_ranges since we dont support them yet
+			facetResponse.add("facet_dates", new SimpleOrderedMap<Object>());
+			facetResponse.add("facet_ranges", new SimpleOrderedMap<Object>());
+
+		}
+
+		return facetResponse;
 	}
 }
