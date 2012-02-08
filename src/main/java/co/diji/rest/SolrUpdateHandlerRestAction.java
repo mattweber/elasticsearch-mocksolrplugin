@@ -96,7 +96,9 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 			// parameters
 			String qstr = request.contentAsString();
 			Map<String, String> params = request.params();
-			if (qstr.contains("wt=javabin")) {
+			if (params.containsKey("wt")) {
+                // output writer already found
+            } else if (qstr.contains("wt=javabin")) {
 				params.put("wt", "javabin");
 			} else if (qstr.contains("wt=xml")) {
 				params.put("wt", "xml");
