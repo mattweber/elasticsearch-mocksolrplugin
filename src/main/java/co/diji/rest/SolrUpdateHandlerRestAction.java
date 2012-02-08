@@ -47,7 +47,7 @@ import co.diji.solr.SolrResponseWriter;
 public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 
 	// content types
-	private final String contentTypeFormEncoded = "application/x-www-form-urlencoded; charset=UTF-8";
+	private final String contentTypeFormEncoded = "application/x-www-form-urlencoded";
 
 	// fields in the Solr input document to scan for a document id
 	private final String[] idFields = { "id", "docid", "documentid", "contentid", "uuid", "url" };
@@ -90,7 +90,7 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		// detect this and just send the response without processing
 		// we don't need to do commits with ES
 		// TODO: support optimize
-		if (request.header("Content-Type").equals(contentTypeFormEncoded)) {
+		if (request.header("Content-Type").contains(contentTypeFormEncoded)) {
 			// find the output writer specified
 			// it will be inside the content since we have form encoded
 			// parameters
