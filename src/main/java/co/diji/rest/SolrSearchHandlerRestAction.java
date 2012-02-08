@@ -21,7 +21,6 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.joda.time.format.DateTimeFormatter;
 import org.elasticsearch.common.joda.time.format.ISODateTimeFormat;
-import org.elasticsearch.common.netty.handler.codec.http.QueryStringDecoder;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.AndFilterBuilder;
 import org.elasticsearch.index.query.FilterBuilder;
@@ -47,6 +46,7 @@ import org.elasticsearch.search.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
 
 import co.diji.solr.SolrResponseWriter;
+import co.diji.utils.QueryStringDecoder;
 
 public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
