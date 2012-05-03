@@ -1,14 +1,7 @@
 package co.diji.rest;
 
-import static org.elasticsearch.index.query.FilterBuilders.andFilter;
-import static org.elasticsearch.index.query.FilterBuilders.queryFilter;
-
-import java.io.IOException;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Pattern;
-
+import co.diji.solr.SolrResponseWriter;
+import co.diji.utils.QueryStringDecoder;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.util.NamedList;
@@ -24,13 +17,9 @@ import org.elasticsearch.common.joda.time.format.ISODateTimeFormat;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.AndFilterBuilder;
 import org.elasticsearch.index.query.FilterBuilder;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.index.query.QueryStringQueryBuilder;
-import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.RestChannel;
-import org.elasticsearch.rest.RestController;
-import org.elasticsearch.rest.RestRequest;
-import org.elasticsearch.rest.XContentThrowableRestResponse;
+import org.elasticsearch.rest.*;
 import org.elasticsearch.rest.action.support.RestActions;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHitField;
@@ -45,8 +34,14 @@ import org.elasticsearch.search.highlight.HighlightBuilder;
 import org.elasticsearch.search.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
 
-import co.diji.solr.SolrResponseWriter;
-import co.diji.utils.QueryStringDecoder;
+import java.io.IOException;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+import static org.elasticsearch.index.query.FilterBuilders.andFilter;
+import static org.elasticsearch.index.query.FilterBuilders.queryFilter;
 
 public class SolrSearchHandlerRestAction extends BaseRestHandler {
 
@@ -145,15 +140,18 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 		List<String> fqs = params.get("fq");
 		boolean hl = request.paramAsBoolean("hl", false);
 		boolean facet = request.paramAsBoolean("facet", false);
-
-		// get index and type we want to search against
-		final String index = request.hasParam("index") ? request.param("index") : "solr";
-		final String type = request.hasParam("type") ? request.param("type") : "docs";
+    boolean qDsl = request.paramAsBoolean("q.dsl", false);
+    boolean fqDsl = request.paramAsBoolean("fq.dsl", false);
 
 		// build the query
 		SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
 		if (q != null) {
-			QueryStringQueryBuilder queryBuilder = QueryBuilders.queryString(q);
+			QueryBuilder queryBuilder;
+      if (qDsl) {
+        queryBuilder = QueryBuilders.wrapperQuery(q);
+      } else {
+        queryBuilder = QueryBuilders.queryString(q);
+      }
 			searchSourceBuilder.query(queryBuilder);
 		}
 
@@ -206,11 +204,13 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 			if (fqs.size() > 1) {
 				AndFilterBuilder fqAnd = andFilter();
 				for (String fq : fqs) {
-					fqAnd.add(queryFilter(QueryBuilders.queryString(fq)));
+          QueryBuilder queryBuilder = fqDsl ? QueryBuilders.wrapperQuery(fq) : QueryBuilders.queryString(fq);
+					fqAnd.add(queryFilter(queryBuilder));
 				}
 				filterBuilder = fqAnd;
 			} else {
-				filterBuilder = queryFilter(QueryBuilders.queryString(fqs.get(0)));
+        QueryBuilder queryBuilder = fqDsl ? QueryBuilders.wrapperQuery(fqs.get(0)) : QueryBuilders.queryString(fqs.get(0));
+				filterBuilder = queryFilter(queryBuilder);
 			}
 
 			searchSourceBuilder.filter(filterBuilder);
@@ -286,6 +286,10 @@ public class SolrSearchHandlerRestAction extends BaseRestHandler {
 				}
 			}
 		}
+
+    // get index and type we want to search against
+    final String index = request.hasParam("index") ? request.param("index") : "solr";
+    final String type = request.hasParam("type") ? request.param("type") : "docs";
 
 		// Build the search Request
 		String[] indices = RestActions.splitIndices(index);

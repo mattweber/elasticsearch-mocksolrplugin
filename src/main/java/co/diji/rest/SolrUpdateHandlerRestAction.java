@@ -1,22 +1,6 @@
 package co.diji.rest;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.StringReader;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
-
+import co.diji.solr.SolrResponseWriter;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.solr.client.solrj.request.JavaBinUpdateRequestCodec;
 import org.apache.solr.client.solrj.request.UpdateRequest;
@@ -36,13 +20,18 @@ import org.elasticsearch.client.Client;
 import org.elasticsearch.client.Requests;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.RestChannel;
-import org.elasticsearch.rest.RestController;
-import org.elasticsearch.rest.RestRequest;
-import org.elasticsearch.rest.XContentThrowableRestResponse;
+import org.elasticsearch.rest.*;
 
-import co.diji.solr.SolrResponseWriter;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.StringReader;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
 
 public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 
@@ -280,7 +269,7 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	/**
 	 * Converts a SolrInputDocument into an ES IndexRequest
 	 * 
-	 * @param solrDoc the Solr input document to convert
+	 * @param doc the Solr input document to convert
 	 * @param request the ES rest request
 	 * @return the ES index request object
 	 */
@@ -289,8 +278,8 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
 		final String type = request.hasParam("type") ? request.param("type") : "docs";
 
-		// generate an id for the document
-		String id = getIdForDoc(doc);
+		// Get the id from request or if not available generate an id for the document
+		String id = request.hasParam("id") ? request.param("id") : getIdForDoc(doc);
 
 		// create an IndexRequest for this document
 		IndexRequest indexRequest = new IndexRequest(index, type, id);
