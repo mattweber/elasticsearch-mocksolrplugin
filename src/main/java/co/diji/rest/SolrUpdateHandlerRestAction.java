@@ -20,6 +20,7 @@ import org.elasticsearch.client.Client;
 import org.elasticsearch.client.Requests;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.plugin.diji.MockSolrPlugin;
 import org.elasticsearch.rest.*;
 
 import javax.xml.stream.XMLInputFactory;
@@ -47,6 +48,11 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	// the response writer
 	private final SolrResponseWriter solrResponseWriter = new SolrResponseWriter();
 
+    //Set this flag to false if you want to disable the hashing of id's as they are provided by the Solr Input document
+    //, which is the default behaviour.
+    //You can configure this by adding  'plugin.diji.MockSolrPlugin.hashIds: false' to elasticsearch.yml
+    private final boolean hashIds;
+
 	/**
 	 * Rest actions that mock Solr update handlers
 	 * 
@@ -57,6 +63,9 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	@Inject
 	public SolrUpdateHandlerRestAction(Settings settings, Client client, RestController restController) {
 		super(settings, client);
+
+        hashIds = settings.getComponentSettings(MockSolrPlugin.class).getAsBoolean("MockSolrPlugin.hashIds", true);
+        logger.info("Solr input document id's will "+ (hashIds ? "" : "not ") + "be hashed to created ElasticSearch document id's");
 
 		// register update handlers
 		// specifying and index and type is optional
@@ -248,12 +257,13 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 	 * @return the ES delete request
 	 */
 	private DeleteRequest getDeleteRequest(String id, RestRequest request) {
+
 		// get the index and type we want to execute this delete request on
 		final String index = request.hasParam("index") ? request.param("index") : "solr";
 		final String type = request.hasParam("type") ? request.param("type") : "docs";
 
 		// create the delete request object
-		DeleteRequest deleteRequest = new DeleteRequest(index, type, getMD5(id));
+		DeleteRequest deleteRequest = new DeleteRequest(index, type, getId(id));
 		deleteRequest.parent(request.param("parent"));
 
 		// TODO: this was causing issues, do we need it?
@@ -351,8 +361,18 @@ public class SolrUpdateHandlerRestAction extends BaseRestHandler {
 		
 		// return the id which is the md5 of either the
 		// random uuid or id found in the input document.
-		return getMD5(id);
+		return getId(id);
 	}
+
+    /**
+     * Return the given id or a hashed version thereof, based on the plugin configuration
+     * @param id
+     * @return
+     */
+
+    private final String getId(String id){
+        return hashIds ? getMD5(id) : id;
+    }
 
 	/**
 	 * Calculates the md5 hex digest of the given input string
