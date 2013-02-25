@@ -28,8 +28,8 @@
     </parent>
 
     <properties>
-        <elasticsearch.version>0.19.3</elasticsearch.version>
-        <solr.version>3.6.0</solr.version>
+        <elasticsearch.version>0.20.5</elasticsearch.version>
+        <solr.version>3.6.2</solr.version>
     </properties>
 
     <repositories>
